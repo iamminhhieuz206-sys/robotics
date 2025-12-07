@@ -1,0 +1,28 @@
+import os
+
+label_folder = r"D:\Robotic\images\Coca_chai"
+new_class_index = 2  # class mới
+
+# Lấy tất cả file .txt trong folder
+txt_files = [f for f in os.listdir(label_folder) if f.endswith(".txt")]
+
+for txt_file in txt_files:
+    path = os.path.join(label_folder, txt_file)
+    with open(path, "r") as f:
+        lines = f.readlines()
+    
+    # Thay class_index đầu tiên bằng new_class_index
+    new_lines = []
+    for line in lines:
+        parts = line.strip().split()
+        if len(parts) == 5:  # chuẩn YOLO: class x_center y_center w h
+            parts[0] = str(new_class_index)
+            new_lines.append(" ".join(parts) + "\n")
+        else:
+            new_lines.append(line)  # giữ nguyên nếu format lạ
+    
+    # Ghi lại file
+    with open(path, "w") as f:
+        f.writelines(new_lines)
+
+print(f"Đã cập nhật class_index thành {new_class_index} cho {len(txt_files)} file.")
