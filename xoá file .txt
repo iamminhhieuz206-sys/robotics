@@ -1,0 +1,13 @@
+import os
+
+# Folder chứa các file .txt
+label_folder = r"D:/Robotics/labels"
+
+# Duyệt và xóa file .txt
+for file in os.listdir(label_folder):
+    if file.lower().endswith(".txt"):
+        file_path = os.path.join(label_folder, file)
+        os.remove(file_path)
+        print(f"Đã xóa: {file_path}")
+
+print("Hoàn tất xóa tất cả file .txt!")
