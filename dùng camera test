@@ -16,8 +16,8 @@ while True:
     # 3. Dò tìm object với confidence threshold và NMS
     results = model.predict(
         frame, 
-        conf=0.5,      # Chỉ hiện detections có confidence >= 60%
-        iou=0.4,      # NMS threshold - loại bỏ boxes trùng lặp
+        conf=0.7,      # Chỉ hiện detections có confidence >= 60%
+        iou=0.5,      # NMS threshold - loại bỏ boxes trùng lặp
         verbose=False  # Tắt log
     )
 
