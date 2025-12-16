@@ -1,0 +1,64 @@
+import cv2
+import os
+
+# Folder ảnh và folder lưu label
+image_folder = r"D:\Robotic\Banh_cosy"
+label_folder = r"D:\Robotic\Banh_cosy"
+os.makedirs(label_folder, exist_ok=True)
+
+# Class index (Banh_cosy = 0)
+class_index = 0
+
+# ====== CHỈNH Ở ĐÂY ======
+start_index = 401  # bắt đầu từ Banh_cosy_401
+# ========================
+
+# Lấy danh sách ảnh, sắp xếp theo thứ tự số và lọc >= 401
+images = sorted(
+    [f for f in os.listdir(image_folder)
+     if f.lower().endswith((".jpg", ".png"))
+     and int(''.join(filter(str.isdigit, f))) >= start_index],
+    key=lambda x: int(''.join(filter(str.isdigit, x)))
+)
+
+# Kích thước tối đa để hiển thị
+max_width = 1000
+max_height = 700
+
+def crop_and_label(img_path):
+    img = cv2.imread(img_path)
+    orig_h, orig_w = img.shape[:2]
+
+    # Resize ảnh hiển thị nếu quá to
+    scale = min(max_width/orig_w, max_height/orig_h, 1)
+    disp_img = cv2.resize(img, (int(orig_w*scale), int(orig_h*scale)))
+
+    # Chọn ROI
+    r = cv2.selectROI("Select ROI and press ENTER", disp_img, False)
+    cv2.destroyAllWindows()
+
+    # Chuyển ROI về tọa độ ảnh gốc
+    x, y, w, h = [int(v/scale) for v in r]
+
+    # Chuẩn YOLO
+    x_center = (x + w/2) / orig_w
+    y_center = (y + h/2) / orig_h
+    w_norm = w / orig_w
+    h_norm = h / orig_h
+
+    # Lưu label
+    label_path = os.path.join(
+        label_folder,
+        os.path.splitext(os.path.basename(img_path))[0] + ".txt"
+    )
+    with open(label_path, "w") as f:
+        f.write(f"{class_index} {x_center} {y_center} {w_norm} {h_norm}\n")
+
+    print(f"✔ Lưu label: {label_path}")
+
+# Lặp qua ảnh
+for img_file in images:
+    img_path = os.path.join(image_folder, img_file)
+    crop_and_label(img_path)
+
+print("🎉 Xong tất cả ảnh từ Banh_cosy_401!")
