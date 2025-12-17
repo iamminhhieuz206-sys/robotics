@@ -51,21 +51,21 @@ class VideoThread(QThread):
                         cls_id = int(box.cls[0])
                         cls_name = result.names[cls_id]
                         
-                        # Chỉ vẽ nếu danh sách rỗng (all) hoặc class nằm trong danh sách đã chọn
-                        if len(self.selected_classes) == 0 or cls_name in self.selected_classes:
+                        # Chỉ vẽ nếu class nằm trong danh sách đã chọn
+                        if cls_name in self.selected_classes:
                             # Lấy tọa độ box
                             x1, y1, x2, y2 = map(int, box.xyxy[0])
                             conf = float(box.conf[0])
                             
-                            # Vẽ bounding box
-                            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            # Vẽ bounding box với màu terracotta
+                            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (89, 94, 226), 3)
                             
                             # Vẽ label
                             label = f"{cls_name}: {conf:.2f}"
                             (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-                            cv2.rectangle(annotated_frame, (x1, y1 - h - 10), (x1 + w, y1), (0, 255, 0), -1)
+                            cv2.rectangle(annotated_frame, (x1, y1 - h - 10), (x1 + w, y1), (89, 94, 226), -1)
                             cv2.putText(annotated_frame, label, (x1, y1 - 5), 
-                                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                 
                 self.change_pixmap_signal.emit(annotated_frame)
         
@@ -89,7 +89,7 @@ class AnimatedButton(QPushButton):
         self.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                           stop:0 #00796b, stop:1 #004d40);
+                                           stop:0 #E2725B, stop:1 #C85A44);
                 color: white;
                 border: none;
                 border-radius: 12px;
@@ -99,15 +99,15 @@ class AnimatedButton(QPushButton):
             }
             QPushButton:hover {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                           stop:0 #ff8c42, stop:1 #ff6f00);
+                                           stop:0 #D4A574, stop:1 #C89968);
             }
             QPushButton:pressed {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                           stop:0 #005c50, stop:1 #003d33);
+                                           stop:0 #B85940, stop:1 #A04830);
             }
             QPushButton:disabled {
-                background: #4d4d4d;
-                color: #999999;
+                background: #8B7355;
+                color: #D4C4B0;
             }
         """)
     
@@ -141,10 +141,10 @@ class AnimatedButton(QPushButton):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("YOLOv8 Object Detection - Modern GUI")
+        self.setWindowTitle("YOLOv8 Food Detection - Terracotta Theme")
         self.setMinimumSize(1400, 900)
         
-        # Thiết lập theme tối hiện đại
+        # Thiết lập theme Terracotta
         self.setup_theme()
         
         # Thread video
@@ -158,33 +158,52 @@ class MainWindow(QMainWindow):
         
         # Trạng thái
         self.camera_running = False
-        self.available_classes = []
+        
+        # Danh sách món ăn cố định
+        self.food_items = {
+            0: "Banh_cosy",
+            1: "Cay_quit",
+            2: "Coca_chai",
+            3: "Coca_chai_moi",
+            4: "Coca_lon",
+            5: "Hoa_mai",
+            6: "Mi_haohao",
+            7: "Mi_omachi",
+            8: "Mi_siukay",
+            9: "Nuoc_suoi",
+            10: "Orange_chai",
+            11: "Pepsi_chai",
+            12: "Pepsi_lon",
+            13: "Pho_bo",
+            14: "Pho_tron",
+            15: "Sprite_chai"
+        }
         
         # Tạo UI
         self.setup_ui()
         
     def setup_theme(self):
-        """Thiết lập theme UEH - Teal & Orange"""
+        """Thiết lập theme Terracotta"""
         self.setStyleSheet("""
             QMainWindow {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                           stop:0 #0a4d4d, stop:0.5 #0d6666, stop:1 #0a4d4d);
+                                           stop:0 #5D4037, stop:0.5 #6D4C41, stop:1 #5D4037);
             }
             QLabel {
-                color: white;
+                color: #FFF8E1;
                 font-size: 14px;
             }
             QComboBox {
-                background-color: #1a5c5c;
-                color: white;
-                border: 2px solid #00796b;
+                background-color: #8D6E63;
+                color: #FFF8E1;
+                border: 2px solid #A1887F;
                 border-radius: 8px;
                 padding: 8px 12px;
                 font-size: 14px;
                 min-width: 200px;
             }
             QComboBox:hover {
-                border: 2px solid #ff8c42;
+                border: 2px solid #D4A574;
             }
             QComboBox::drop-down {
                 border: none;
@@ -194,20 +213,20 @@ class MainWindow(QMainWindow):
                 image: none;
                 border-left: 5px solid transparent;
                 border-right: 5px solid transparent;
-                border-top: 8px solid white;
+                border-top: 8px solid #FFF8E1;
                 margin-right: 10px;
             }
             QComboBox QAbstractItemView {
-                background-color: #1a5c5c;
-                color: white;
-                selection-background-color: #00796b;
-                border: 2px solid #00796b;
+                background-color: #8D6E63;
+                color: #FFF8E1;
+                selection-background-color: #A1887F;
+                border: 2px solid #A1887F;
                 border-radius: 8px;
             }
             QListWidget {
-                background-color: #1a5c5c;
-                color: white;
-                border: 2px solid #00796b;
+                background-color: #8D6E63;
+                color: #FFF8E1;
+                border: 2px solid #A1887F;
                 border-radius: 12px;
                 padding: 10px;
                 font-size: 14px;
@@ -218,34 +237,31 @@ class MainWindow(QMainWindow):
                 margin: 2px;
             }
             QListWidget::item:hover {
-                background-color: rgba(0, 121, 107, 0.3);
+                background-color: rgba(161, 136, 127, 0.3);
             }
             QListWidget::item:selected {
-                background-color: rgba(0, 121, 107, 0.5);
+                background-color: rgba(161, 136, 127, 0.5);
             }
             QCheckBox {
-                color: white;
+                color: #FFF8E1;
                 font-size: 14px;
                 spacing: 8px;
             }
             QCheckBox::indicator {
                 width: 20px;
                 height: 20px;
-                border: 2px solid #00796b;
+                border: 2px solid #A1887F;
                 border-radius: 5px;
-                background-color: #1a5c5c;
+                background-color: #8D6E63;
             }
             QCheckBox::indicator:hover {
-                border: 2px solid #ff8c42;
-                background-color: rgba(0, 121, 107, 0.2);
+                border: 2px solid #D4A574;
+                background-color: rgba(161, 136, 127, 0.2);
             }
             QCheckBox::indicator:checked {
-                background-color: #00796b;
-                border: 2px solid #ff8c42;
+                background-color: #E2725B;
+                border: 2px solid #D4A574;
                 image: none;
-            }
-            QCheckBox::indicator:checked:after {
-                content: "✓";
             }
         """)
     
@@ -253,33 +269,33 @@ class MainWindow(QMainWindow):
         """Tạo giao diện"""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)  # Đổi sang HBoxLayout
+        main_layout = QHBoxLayout(central_widget)
         main_layout.setSpacing(20)
         main_layout.setContentsMargins(30, 30, 30, 30)
         
-        # Left panel - Controls and Object Selection
+        # Left panel - Controls and Food Selection
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setSpacing(20)
         left_panel.setMaximumWidth(400)
         left_panel.setStyleSheet("""
             QWidget {
-                background: rgba(26, 92, 92, 0.5);
+                background: rgba(141, 110, 99, 0.5);
                 border-radius: 15px;
             }
         """)
         
         # Header
-        header_label = QLabel("🎯 YOLOv8 Detection")
+        header_label = QLabel("🍜 Item Detection System")
         header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header_label.setStyleSheet("""
             font-size: 24px;
             font-weight: bold;
-            color: white;
+            color: #FFF8E1;
             padding: 20px;
             background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                       stop:0 rgba(0, 121, 107, 0.4), 
-                                       stop:1 rgba(255, 140, 66, 0.4));
+                                       stop:0 rgba(226, 114, 91, 0.5), 
+                                       stop:1 rgba(212, 165, 116, 0.5));
             border-radius: 15px;
         """)
         left_layout.addWidget(header_label)
@@ -288,7 +304,7 @@ class MainWindow(QMainWindow):
         control_frame = QFrame()
         control_frame.setStyleSheet("""
             QFrame {
-                background: rgba(13, 102, 102, 0.7);
+                background: rgba(109, 76, 65, 0.7);
                 border-radius: 12px;
                 padding: 15px;
             }
@@ -307,11 +323,11 @@ class MainWindow(QMainWindow):
         
         left_layout.addWidget(control_frame)
         
-        # Object selection panel
+        # Food selection panel
         selection_frame = QFrame()
         selection_frame.setStyleSheet("""
             QFrame {
-                background: rgba(13, 102, 102, 0.7);
+                background: rgba(109, 76, 65, 0.7);
                 border-radius: 12px;
                 padding: 15px;
             }
@@ -320,11 +336,11 @@ class MainWindow(QMainWindow):
         selection_layout.setSpacing(10)
         
         # Title
-        title_label = QLabel("📋 Select Objects to Detect:")
+        title_label = QLabel("📋 Select Food Items to Detect:")
         title_label.setStyleSheet("""
             font-size: 16px;
             font-weight: bold;
-            color: #ff8c42;
+            color: #D4A574;
             padding: 5px;
         """)
         selection_layout.addWidget(title_label)
@@ -336,15 +352,15 @@ class MainWindow(QMainWindow):
         self.btn_select_all.clicked.connect(self.select_all_objects)
         self.btn_select_all.setStyleSheet("""
             QPushButton {
-                background-color: rgba(0, 121, 107, 0.3);
-                color: white;
-                border: 1px solid #00796b;
+                background-color: rgba(161, 136, 127, 0.3);
+                color: #FFF8E1;
+                border: 1px solid #A1887F;
                 border-radius: 8px;
                 padding: 8px;
                 font-size: 12px;
             }
             QPushButton:hover {
-                background-color: rgba(0, 121, 107, 0.6);
+                background-color: rgba(161, 136, 127, 0.6);
             }
         """)
         select_buttons_layout.addWidget(self.btn_select_all)
@@ -353,34 +369,44 @@ class MainWindow(QMainWindow):
         self.btn_deselect_all.clicked.connect(self.deselect_all_objects)
         self.btn_deselect_all.setStyleSheet("""
             QPushButton {
-                background-color: rgba(255, 140, 66, 0.3);
-                color: white;
-                border: 1px solid #ff8c42;
+                background-color: rgba(226, 114, 91, 0.3);
+                color: #FFF8E1;
+                border: 1px solid #E2725B;
                 border-radius: 8px;
                 padding: 8px;
                 font-size: 12px;
             }
             QPushButton:hover {
-                background-color: rgba(255, 140, 66, 0.6);
+                background-color: rgba(226, 114, 91, 0.6);
             }
         """)
         select_buttons_layout.addWidget(self.btn_deselect_all)
         
         selection_layout.addLayout(select_buttons_layout)
         
-        # List widget với checkboxes
+        # List widget với checkboxes cho món ăn
         self.object_list = QListWidget()
         self.object_list.setMinimumHeight(300)
+        
+        # Thêm các món ăn vào list
+        for food_id, food_name in self.food_items.items():
+            item = QListWidgetItem()
+            checkbox = QCheckBox(f"{food_name.replace('_', ' ')}")
+            checkbox.setProperty("food_name", food_name)
+            checkbox.stateChanged.connect(self.on_checkbox_changed)
+            self.object_list.addItem(item)
+            self.object_list.setItemWidget(item, checkbox)
+        
         selection_layout.addWidget(self.object_list)
         
         # Selected count label
-        self.selected_count_label = QLabel("Selected: 0 objects (All)")
+        self.selected_count_label = QLabel("Selected: 0 items")
         self.selected_count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.selected_count_label.setStyleSheet("""
             font-size: 13px;
-            color: #ff8c42;
+            color: #D4A574;
             padding: 8px;
-            background: rgba(0, 121, 107, 0.2);
+            background: rgba(161, 136, 127, 0.2);
             border-radius: 8px;
         """)
         selection_layout.addWidget(self.selected_count_label)
@@ -393,8 +419,9 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("""
             font-size: 14px;
             padding: 12px;
-            background: rgba(0, 121, 107, 0.2);
+            background: rgba(161, 136, 127, 0.2);
             border-radius: 10px;
+            color: #FFF8E1;
         """)
         left_layout.addWidget(self.status_label)
         
@@ -410,13 +437,15 @@ class MainWindow(QMainWindow):
         self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_label.setStyleSheet("""
             QLabel {
-                background-color: #0a3d3d;
-                border: 3px solid #00796b;
+                background-color: #4E342E;
+                border: 3px solid #A1887F;
                 border-radius: 15px;
                 min-height: 600px;
+                color: #D4C4B0;
+                font-size: 18px;
             }
         """)
-        self.video_label.setText("📹 Camera feed will appear here")
+        self.video_label.setText("📹 Camera will appear here")
         right_layout.addWidget(self.video_label)
         
         # Add panels to main layout
@@ -444,9 +473,9 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet(f"""
             font-size: 16px;
             padding: 15px;
-            background: rgba(0, 121, 107, {self.status_opacity * 0.4});
+            background: rgba(226, 114, 91, {self.status_opacity * 0.4});
             border-radius: 10px;
-            color: rgba(255, 255, 255, {self.status_opacity});
+            color: rgba(255, 248, 225, {self.status_opacity});
         """)
     
     def start_camera(self):
@@ -474,8 +503,9 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("""
             font-size: 16px;
             padding: 15px;
-            background: rgba(0, 121, 107, 0.2);
+            background: rgba(161, 136, 127, 0.2);
             border-radius: 10px;
+            color: #FFF8E1;
         """)
         self.status_timer.stop()
         
@@ -493,18 +523,6 @@ class MainWindow(QMainWindow):
     
     def update_image(self, cv_img):
         """Cập nhật hình ảnh lên GUI"""
-        # Cập nhật danh sách classes nếu cần
-        if self.video_thread.model and self.object_list.count() == 0:
-            self.available_classes = list(self.video_thread.model.names.values())
-            for cls_name in self.available_classes:
-                item = QListWidgetItem()
-                checkbox = QCheckBox(cls_name)
-                checkbox.stateChanged.connect(self.on_checkbox_changed)
-                self.object_list.addItem(item)
-                self.object_list.setItemWidget(item, checkbox)
-                # Tự động check all khi khởi tạo
-                checkbox.setChecked(True)
-        
         # Convert OpenCV image to Qt format
         rgb_image = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb_image.shape
@@ -521,37 +539,33 @@ class MainWindow(QMainWindow):
         self.video_label.setPixmap(scaled_pixmap)
     
     def on_checkbox_changed(self):
-        """Xử lý khi checkbox thay đổi"""
+        """Xử lý khi checkbox thay đổi - CHỈ nhận diện món được chọn"""
         selected = []
         for i in range(self.object_list.count()):
             item = self.object_list.item(i)
             checkbox = self.object_list.itemWidget(item)
             if checkbox.isChecked():
-                selected.append(checkbox.text())
+                food_name = checkbox.property("food_name")
+                selected.append(food_name)
         
         # Cập nhật danh sách selected vào thread
         self.video_thread.selected_classes = selected
         
         # Cập nhật label hiển thị số lượng
-        if len(selected) == 0:
-            self.selected_count_label.setText("Selected: 0 objects (All)")
-        elif len(selected) == len(self.available_classes):
-            self.selected_count_label.setText(f"Selected: All {len(selected)} objects")
-        else:
-            self.selected_count_label.setText(f"Selected: {len(selected)} object(s)")
+        self.selected_count_label.setText(f"Selected: {len(selected)} item(s)")
         
         # Animation cho label
         self.animate_label(self.selected_count_label)
     
     def select_all_objects(self):
-        """Chọn tất cả objects"""
+        """Chọn tất cả món ăn"""
         for i in range(self.object_list.count()):
             item = self.object_list.item(i)
             checkbox = self.object_list.itemWidget(item)
             checkbox.setChecked(True)
     
     def deselect_all_objects(self):
-        """Bỏ chọn tất cả objects"""
+        """Bỏ chọn tất cả món ăn"""
         for i in range(self.object_list.count()):
             item = self.object_list.item(i)
             checkbox = self.object_list.itemWidget(item)
