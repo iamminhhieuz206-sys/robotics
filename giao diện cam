@@ -31,7 +31,7 @@ class VideoThread(QThread):
     
     def run(self):
         """Vòng lặp chính của thread"""
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(1)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         
@@ -286,7 +286,7 @@ class MainWindow(QMainWindow):
         """)
         
         # Header
-        header_label = QLabel("🍜 Item Detection System")
+        header_label = QLabel("Item Detection System")
         header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header_label.setStyleSheet("""
             font-size: 24px;
@@ -336,7 +336,7 @@ class MainWindow(QMainWindow):
         selection_layout.setSpacing(10)
         
         # Title
-        title_label = QLabel("📋 Select Food Items to Detect:")
+        title_label = QLabel("📋 Items:")
         title_label.setStyleSheet("""
             font-size: 16px;
             font-weight: bold;
