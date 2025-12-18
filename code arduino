@@ -1,0 +1,944 @@
+#define SERIAL_RX_BUFFER_SIZE 512
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+#include <math.h>
+
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
+
+// ================= SERVO CONFIG =================
+#define SERVO_FREQ 50
+int SERVOMIN = 100;
+int SERVOMAX = 520;
+
+// ================= LINK LENGTHS (mm) =================
+float h1 = 65;
+float h2 = 105;
+float h3 = 150;
+float h4 = 60;
+float d1 = 0;
+float d2 = 0;
+float d3 = 0;
+
+#define NUM_SERVOS 6
+
+// ===== CẤU TRÚC LƯU TRỮ SEQUENCE =====
+#define MAX_SEQUENCES 5
+#define MAX_STEPS 30
+
+struct SequenceStep {
+  byte angles[NUM_SERVOS];
+  int delayMs;
+};
+
+struct Sequence {
+  SequenceStep steps[MAX_STEPS];
+  byte stepCount;
+  char name[12];
+  bool isValid;
+};
+
+Sequence sequences[MAX_SEQUENCES];
+byte sequenceCount = 0;
+
+int servoPos[NUM_SERVOS] = {90, 90, 90, 0, 90, 90};
+
+// ===== TỐC ĐỘ SERVO =====
+int servoSpeed[NUM_SERVOS] = {10, 10, 10, 10, 10, 10};
+int globalSpeed = 10;  // Tốc độ chung (1-50)
+
+// ===== CẢM BIẾN TIỆM CẬN =====
+#define SENSOR_PIN 2
+bool sensorEnabled = false;
+bool lastSensorState = HIGH;
+bool autoRunEnabled = false;
+int currentSeqIndex = 0;
+
+// ===== HÀM TRỢ GIÚP =====
+bool strcmpIgnoreCase(const char* str1, const char* str2) {
+  while (*str1 && *str2) {
+    if (tolower(*str1) != tolower(*str2)) {
+      return false;
+    }
+    str1++;
+    str2++;
+  }
+  return (*str1 == *str2);
+}
+
+void copyString(char* dest, String src, int maxLen) {
+  int len = min(src.length(), maxLen - 1);
+  for (int i = 0; i < len; i++) {
+    dest[i] = src.charAt(i);
+  }
+  dest[len] = '\0';
+}
+
+// =============================================================================
+// ======== HÀM CHUYỂN ĐỘ → XUNG PCA9685 ======================================
+// =============================================================================
+int angleToPulse(float angle) {
+  float pulse = map(angle, 0, 180, SERVOMIN, SERVOMAX);
+  return (int)pulse;
+}
+
+// ===== HÀM DI CHUYỂN SERVO VỚI TỐC ĐỘ (CẢI TIẾN) =====
+void moveServoSmooth(int num, int targetAngle, int speed) {
+  targetAngle = constrain(targetAngle, 0, 180);
+  int currentAngle = servoPos[num];
+  
+  if (currentAngle == targetAngle) return;
+  
+  int step = (currentAngle < targetAngle) ? 1 : -1;
+  
+  for (int angle = currentAngle; angle != targetAngle; angle += step) {
+    pwm.setPWM(num, 0, angleToPulse(angle));
+    servoPos[num] = angle;
+    delay(50 / speed);  // Tốc độ càng cao, delay càng ngắn
+  }
+  
+  pwm.setPWM(num, 0, angleToPulse(targetAngle));
+  servoPos[num] = targetAngle;
+}
+
+// ===== HÀM DI CHUYỂN ĐƠN GIẢN (SỬ DỤNG GLOBAL SPEED) =====
+void moveServo(int num, int angle) {
+  moveServoSmooth(num, angle, globalSpeed);
+}
+
+// ===== DI CHUYỂN NHIỀU SERVO ĐỒNG BỘ VỚI TỐC ĐỘ =====
+void moveAllSmooth(int angles[NUM_SERVOS], int speed) {
+  int maxSteps = 0;
+  
+  // Tìm số bước nhiều nhất
+  for (byte i = 0; i < NUM_SERVOS; i++) {
+    int steps = abs(angles[i] - servoPos[i]);
+    if (steps > maxSteps) maxSteps = steps;
+  }
+  
+  if (maxSteps == 0) return;
+  
+  // Di chuyển đồng bộ
+  for (int step = 0; step <= maxSteps; step++) {
+    for (byte i = 0; i < NUM_SERVOS; i++) {
+      int target = angles[i];
+      int current = servoPos[i];
+      int newAngle = map(step, 0, maxSteps, current, target);
+      pwm.setPWM(i, 0, angleToPulse(newAngle));
+      servoPos[i] = newAngle;
+    }
+    delay(50 / speed);
+  }
+}
+
+// ===== CHẠY TOÀN BỘ SEQUENCES =====
+void runAllSequences() {
+  Serial.println(F("\n=== RUNNING ALL SEQUENCES ==="));
+  
+  int validCount = 0;
+  for (byte i = 0; i < sequenceCount; i++) {
+    if (sequences[i].isValid) validCount++;
+  }
+  
+  if (validCount == 0) {
+    Serial.println(F("No sequences to run!"));
+    return;
+  }
+  
+  Serial.print(F("Running "));
+  Serial.print(validCount);
+  Serial.println(F(" sequences..."));
+  
+  for (byte i = 0; i < sequenceCount; i++) {
+    if (sequences[i].isValid) {
+      Serial.print(F("\n>> Sequence: "));
+      Serial.println(sequences[i].name);
+      
+      for (byte j = 0; j < sequences[i].stepCount; j++) {
+        Serial.print(F("  Step "));
+        Serial.print(j + 1);
+        Serial.print(F(": "));
+        
+        for (byte k = 0; k < NUM_SERVOS; k++) {
+          moveServo(k, sequences[i].steps[j].angles[k]);
+          Serial.print(sequences[i].steps[j].angles[k]);
+          if (k < NUM_SERVOS - 1) Serial.print(F(","));
+        }
+        Serial.println();
+        
+        delay(sequences[i].steps[j].delayMs);
+      }
+      
+      Serial.println(F("  Done!"));
+      delay(500);
+    }
+  }
+  
+  Serial.println(F("\n=== ALL SEQUENCES COMPLETED ===\n"));
+}
+
+// ===== CHẠY MỘT SEQUENCE CỤ THỂ =====
+void runSequence(byte index) {
+  if (index >= sequenceCount || !sequences[index].isValid) {
+    Serial.println(F("Invalid sequence!"));
+    return;
+  }
+  
+  Serial.print(F(">>"));
+  Serial.println(sequences[index].name);
+  
+  for (byte j = 0; j < sequences[index].stepCount; j++) {
+    Serial.print(j + 1);
+    Serial.print(F(": "));
+    
+    for (byte k = 0; k < NUM_SERVOS; k++) {
+      moveServo(k, sequences[index].steps[j].angles[k]);
+      Serial.print(sequences[index].steps[j].angles[k]);
+      if (k < NUM_SERVOS - 1) Serial.print(F(","));
+    }
+    Serial.println();
+    
+    delay(sequences[index].steps[j].delayMs);
+  }
+  
+  Serial.println(F("OK"));
+}
+
+// =============================================================================
+// ======== ĐỘNG HỌC THUẬN (FORWARD KINEMATICS) ===============================
+// =============================================================================
+void forwardKinematics() {
+  Serial.println(F("\n=== FORWARD KINEMATICS ==="));
+  
+  float theta1 = servoPos[0] * DEG_TO_RAD;
+  float theta2 = servoPos[1] * DEG_TO_RAD;
+  float theta3 = servoPos[2] * DEG_TO_RAD;
+  float theta4 = servoPos[3] * DEG_TO_RAD;
+  float theta5 = servoPos[4] * DEG_TO_RAD;
+  
+  float r = h2 * cos(theta2) + h3 * cos(theta2 + theta3) + h4 * cos(theta2 + theta3 + theta5);
+  float z = h1 + h2 * sin(theta2) + h3 * sin(theta2 + theta3) + h4 * sin(theta2 + theta3 + theta5);
+  float x = r * cos(theta1);
+  float y = r * sin(theta1);
+  
+  Serial.println(F("Current Joint Angles:"));
+  for (int i = 0; i < NUM_SERVOS; i++) {
+    Serial.print(F("  J"));
+    Serial.print(i);
+    Serial.print(F(": "));
+    Serial.print(servoPos[i]);
+    Serial.println(F(" deg"));
+  }
+  
+  Serial.println(F("\nEnd Effector Position:"));
+  Serial.print(F("  X = ")); Serial.print(x); Serial.println(F(" mm"));
+  Serial.print(F("  Y = ")); Serial.print(y); Serial.println(F(" mm"));
+  Serial.print(F("  Z = ")); Serial.print(z); Serial.println(F(" mm"));
+  
+  float distance = sqrt(x*x + y*y + z*z);
+  Serial.print(F("  Distance: ")); Serial.print(distance); Serial.println(F(" mm"));
+  Serial.println(F("==========================\n"));
+}
+
+// =============================================================================
+// ======== ĐỘNG HỌC NGHỊCH (INVERSE KINEMATICS) ==============================
+// =============================================================================
+bool inverseKinematics(float px, float py, float pz,
+                       float nx, float ny, float nz,
+                       float ox, float oy, float oz,
+                       float ax, float ay, float az,
+                       float* t1, float* t2, float* t3, float* t4, float* t5)
+{
+  *t1 = atan2(py, px) * 180.0 / M_PI;
+  
+  float px1 = cos(*t1 * M_PI / 180) * px + sin(*t1 * M_PI / 180) * py;
+  float pz1 = pz;
+  
+  float x2 = px1;
+  float z2 = pz1 - h1;
+  
+  *t2 = atan2(z2, x2) * 180.0 / M_PI;
+  
+  float L23 = sqrt(x2*x2 + z2*z2);
+  
+  float max_reach = h2 + h3;
+  float min_reach = abs(h2 - h3);
+  
+  if (L23 > max_reach || L23 < min_reach) {
+    return false;
+  }
+  
+  float cos_alpha = (h2*h2 + h3*h3 - L23*L23) / (2*h2*h3);
+  cos_alpha = constrain(cos_alpha, -1.0, 1.0);
+  float alpha = acos(cos_alpha);
+  *t3 = -(180.0 - alpha * 180.0 / M_PI);
+  
+  *t4 = -(*t2 + *t3);
+  *t5 = atan2(ay, ax) * 180.0 / M_PI;
+  
+  return true;
+}
+
+void moveInverse(float px, float py, float pz,
+                 float nx, float ny, float nz,
+                 float ox, float oy, float oz,
+                 float ax, float ay, float az)
+{
+  Serial.println(F("\n=== INVERSE KINEMATICS ==="));
+  Serial.print(F("Target: X=")); Serial.print(px);
+  Serial.print(F(" Y=")); Serial.print(py);
+  Serial.print(F(" Z=")); Serial.println(pz);
+  
+  float t1, t2, t3, t4, t5;
+
+  if (inverseKinematics(px, py, pz,
+                        nx, ny, nz,
+                        ox, oy, oz,
+                        ax, ay, az,
+                        &t1, &t2, &t3, &t4, &t5))
+  {
+    int angle0 = constrain((int)t1 + 90, 0, 180);
+    int angle1 = constrain(90 - (int)t2, 0, 180);
+    int angle2 = constrain(180 - (int)t3, 0, 180);
+    int angle3 = constrain((int)t5 + 90, 0, 180);
+    int angle4 = constrain(90 + (int)t4, 0, 180);
+    
+    Serial.println(F("\nCalculated Angles:"));
+    Serial.print(F("  J0 (Base):     ")); Serial.println(angle0);
+    Serial.print(F("  J1 (Shoulder): ")); Serial.println(angle1);
+    Serial.print(F("  J2 (Elbow):    ")); Serial.println(angle2);
+    Serial.print(F("  J3 (Wrist R):  ")); Serial.println(angle3);
+    Serial.print(F("  J4 (Wrist P):  ")); Serial.println(angle4);
+    
+    Serial.println(F("\nApply? Y/N"));
+    
+    unsigned long startTime = millis();
+    while (millis() - startTime < 10000) {
+      if (Serial.available() > 0) {
+        String response = Serial.readStringUntil('\n');
+        response.trim();
+        response.toUpperCase();
+        
+        if (response == "Y" || response == "YES") {
+          Serial.println(F("Moving..."));
+          moveServo(0, angle0);
+          delay(100);
+          moveServo(1, angle1);
+          delay(100);
+          moveServo(2, angle2);
+          delay(100);
+          moveServo(3, angle3);
+          delay(100);
+          moveServo(4, angle4);
+          delay(100);
+          Serial.println(F("Done!"));
+          break;
+        } else if (response == "N" || response == "NO") {
+          Serial.println(F("Cancelled"));
+          break;
+        }
+      }
+    }
+  } else {
+    Serial.println(F("ERROR: Target unreachable!"));
+  }
+  
+  Serial.println(F("==========================\n"));
+}
+
+// =============================================================================
+// ======== XỬ LÝ LỆNH =========================================================
+// =============================================================================
+void processCommand(String cmd) {
+  
+  // HELP
+  if (cmd.equals("HELP")) {
+    Serial.println(F("\n===== ROBOT ARM COMMANDS ====="));
+    Serial.println(F("Basic:"));
+    Serial.println(F("  S0 90        - Move servo 0 to 90deg"));
+    Serial.println(F("  M 90,45,120,60,80,100"));
+    Serial.println(F("  ALL 90       - All servos to 90"));
+    Serial.println(F("  HOME         - Go home"));
+    Serial.println(F("  STATUS       - Show positions"));
+    Serial.println(F("  TEST         - Test servos"));
+    Serial.println();
+    Serial.println(F("Speed Control:"));
+    Serial.println(F("  SPEED <1-50> - Set global speed (affects all moves)"));
+    Serial.println(F("  SPEEDS <s0>,<s1>,...,<s5> - Individual speeds"));
+    Serial.println(F("  SS0 90 20    - Move servo 0 to 90 at speed 20"));
+    Serial.println(F("  MS 90,45,120,60,80,100 15 - Move all at speed 15"));
+    Serial.println();
+    Serial.println(F("Sensor Control:"));
+    Serial.println(F("  SENSOR ON/OFF    - Enable/disable sensor"));
+    Serial.println(F("  AUTORUN ON/OFF   - Enable/disable auto-run"));
+    Serial.println(F("  RUNALL           - Manually run all sequences"));
+    Serial.println(F("  SENSORTEST       - Test sensor reading"));
+    Serial.println();
+    Serial.println(F("Sequences:"));
+    Serial.println(F("  SAVE <n> <d> M|M|M"));
+    Serial.println(F("  PLAY <n>"));
+    Serial.println(F("  LIST"));
+    Serial.println(F("  SHOW <n>"));
+    Serial.println(F("  DELETE <n>"));
+    Serial.println();
+    Serial.println(F("Kinematics:"));
+    Serial.println(F("  FK - Forward kinematics"));
+    Serial.println(F("  IK X Y Z - Inverse (basic)"));
+    Serial.println(F("  IKF X Y Z NX NY NZ OX OY OZ AX AY AZ"));
+    Serial.println(F("==============================\n"));
+  }
+  
+  // ===== SAVE SEQUENCE =====
+  else if (cmd.startsWith("SAVE ")) {
+    if (sequenceCount >= MAX_SEQUENCES) {
+      Serial.println(F("MAX!"));
+      return;
+    }
+    
+    String data = cmd.substring(5);
+    int space1 = data.indexOf(' ');
+    int space2 = data.indexOf(' ', space1 + 1);
+    
+    if (space1 <= 0 || space2 <= space1) {
+      Serial.println(F("ERR: SAVE <n> <d> M|M"));
+      return;
+    }
+    
+    String name = data.substring(0, space1);
+    int delayMs = data.substring(space1 + 1, space2).toInt();
+    String steps = data.substring(space2 + 1);
+    
+    char nameChar[12];
+    copyString(nameChar, name, 12);
+    
+    int saveIndex = -1;
+    for (byte i = 0; i < sequenceCount; i++) {
+      if (sequences[i].isValid && strcmpIgnoreCase(sequences[i].name, nameChar)) {
+        saveIndex = i;
+        break;
+      }
+    }
+    
+    if (saveIndex < 0) {
+      saveIndex = sequenceCount;
+      sequenceCount++;
+    }
+    
+    copyString(sequences[saveIndex].name, name, 12);
+    sequences[saveIndex].stepCount = 0;
+    sequences[saveIndex].isValid = true;
+    
+    int start = 0;
+    for (int i = 0; i <= steps.length(); i++) {
+      if (i == steps.length() || steps.charAt(i) == '|') {
+        String step = steps.substring(start, i);
+        step.trim();
+        
+        if (step.startsWith("M ")) {
+          if (sequences[saveIndex].stepCount >= MAX_STEPS) break;
+          
+          String angles = step.substring(2);
+          byte angleIdx = 0;
+          int angleStart = 0;
+          
+          for (int j = 0; j <= angles.length(); j++) {
+            if (j == angles.length() || angles.charAt(j) == ',') {
+              if (angleIdx < NUM_SERVOS) {
+                sequences[saveIndex].steps[sequences[saveIndex].stepCount].angles[angleIdx] =
+                  angles.substring(angleStart, j).toInt();
+                angleIdx++;
+              }
+              angleStart = j + 1;
+            }
+          }
+          
+          if (angleIdx == NUM_SERVOS) {
+            sequences[saveIndex].steps[sequences[saveIndex].stepCount].delayMs = delayMs;
+            sequences[saveIndex].stepCount++;
+          }
+        }
+        start = i + 1;
+      }
+    }
+    
+    Serial.print(F("OK: "));
+    Serial.print(sequences[saveIndex].name);
+    Serial.print(F("("));
+    Serial.print(sequences[saveIndex].stepCount);
+    Serial.println(F(")"));
+  }
+  
+  // ===== PLAY SEQUENCE =====
+  else if (cmd.startsWith("PLAY ")) {
+    String name = cmd.substring(5);
+    name.trim();
+    
+    char nameChar[12];
+    copyString(nameChar, name, 12);
+    
+    for (byte i = 0; i < sequenceCount; i++) {
+      if (sequences[i].isValid && strcmpIgnoreCase(sequences[i].name, nameChar)) {
+        runSequence(i);
+        return;
+      }
+    }
+    Serial.println(F("NOT FOUND"));
+  }
+  
+  // ===== LIST =====
+  else if (cmd.equals("LIST")) {
+    Serial.println(F("=SEQUENCES="));
+    if (sequenceCount == 0) {
+      Serial.println(F("Empty"));
+    } else {
+      for (byte i = 0; i < sequenceCount; i++) {
+        if (sequences[i].isValid) {
+          Serial.print(i + 1);
+          Serial.print(F(". "));
+          Serial.print(sequences[i].name);
+          Serial.print(F("("));
+          Serial.print(sequences[i].stepCount);
+          Serial.println(F(")"));
+        }
+      }
+    }
+  }
+  
+  // ===== DELETE =====
+  else if (cmd.startsWith("DELETE ")) {
+    String name = cmd.substring(7);
+    name.trim();
+    
+    char nameChar[12];
+    copyString(nameChar, name, 12);
+    
+    for (byte i = 0; i < sequenceCount; i++) {
+      if (sequences[i].isValid && strcmpIgnoreCase(sequences[i].name, nameChar)) {
+        sequences[i].isValid = false;
+        Serial.print(F("DEL:"));
+        Serial.println(sequences[i].name);
+        return;
+      }
+    }
+    Serial.println(F("NOT FOUND"));
+  }
+  
+  // ===== SHOW =====
+  else if (cmd.startsWith("SHOW ")) {
+    String name = cmd.substring(5);
+    name.trim();
+    
+    char nameChar[12];
+    copyString(nameChar, name, 12);
+    
+    for (byte i = 0; i < sequenceCount; i++) {
+      if (sequences[i].isValid && strcmpIgnoreCase(sequences[i].name, nameChar)) {
+        Serial.print(F("="));
+        Serial.print(sequences[i].name);
+        Serial.println(F("="));
+        
+        for (byte j = 0; j < sequences[i].stepCount; j++) {
+          Serial.print(j + 1);
+          Serial.print(F(":M "));
+          
+          for (byte k = 0; k < NUM_SERVOS; k++) {
+            Serial.print(sequences[i].steps[j].angles[k]);
+            if (k < NUM_SERVOS - 1) Serial.print(F(","));
+          }
+          Serial.print(F(" "));
+          Serial.println(sequences[i].steps[j].delayMs);
+        }
+        return;
+      }
+    }
+    Serial.println(F("NOT FOUND"));
+  }
+  
+  // ===== FK =====
+  else if (cmd.equals("FK")) {
+    forwardKinematics();
+  }
+  
+  // ===== IK (đơn giản) =====
+  else if (cmd.startsWith("IK ") && !cmd.startsWith("IKF ")) {
+    String data = cmd.substring(3);
+    data.trim();
+    
+    int space1 = data.indexOf(' ');
+    int space2 = data.lastIndexOf(' ');
+    
+    if (space1 > 0 && space2 > space1) {
+      float x = data.substring(0, space1).toFloat();
+      float y = data.substring(space1 + 1, space2).toFloat();
+      float z = data.substring(space2 + 1).toFloat();
+      
+      moveInverse(x, y, z, 1, 0, 0, 0, 1, 0, 0, 0, 1);
+    } else {
+      Serial.println(F("IK X Y Z"));
+    }
+  }
+  
+  // ===== IKF (đầy đủ) =====
+  else if (cmd.startsWith("IKF ")) {
+    String data = cmd.substring(4);
+    data.trim();
+    
+    float vals[12];
+    int idx = 0;
+    int start = 0;
+    
+    for (int i = 0; i <= data.length(); i++) {
+      if ((i == data.length() || data.charAt(i) == ' ') && idx < 12) {
+        vals[idx++] = data.substring(start, i).toFloat();
+        start = i + 1;
+      }
+    }
+    
+    if (idx == 12) {
+      moveInverse(vals[0], vals[1], vals[2],
+                  vals[3], vals[4], vals[5],
+                  vals[6], vals[7], vals[8],
+                  vals[9], vals[10], vals[11]);
+    } else {
+      Serial.println(F("IKF X Y Z NX NY NZ OX OY OZ AX AY AZ"));
+    }
+  }
+  
+  // ===== SPEED - Đặt tốc độ chung =====
+  else if (cmd.startsWith("SPEED ")) {
+    int speed = cmd.substring(6).toInt();
+    if (speed >= 1 && speed <= 50) {
+      globalSpeed = speed;
+      Serial.print(F("Global speed set to: "));
+      Serial.println(globalSpeed);
+    } else {
+      Serial.println(F("Speed must be 1-50"));
+    }
+  }
+  
+  // ===== SPEEDS - Đặt tốc độ từng servo =====
+  else if (cmd.startsWith("SPEEDS ")) {
+    String data = cmd.substring(7);
+    byte count = 0;
+    int start = 0;
+    
+    for (int i = 0; i <= data.length(); i++) {
+      if (i == data.length() || data.charAt(i) == ',') {
+        if (count < NUM_SERVOS) {
+          int speed = data.substring(start, i).toInt();
+          if (speed >= 1 && speed <= 50) {
+            servoSpeed[count] = speed;
+          }
+          count++;
+          start = i + 1;
+        }
+      }
+    }
+    
+    if (count == NUM_SERVOS) {
+      Serial.print(F("Individual speeds: "));
+      for (byte i = 0; i < NUM_SERVOS; i++) {
+        Serial.print(servoSpeed[i]);
+        if (i < NUM_SERVOS - 1) Serial.print(F(","));
+      }
+      Serial.println();
+    }
+  }
+  
+  // ===== SS - Move servo với tốc độ =====
+  else if (cmd.startsWith("SS")) {
+    int space1 = cmd.indexOf(' ');
+    int space2 = cmd.indexOf(' ', space1 + 1);
+    
+    if (space1 > 0 && space2 > space1) {
+      int servoNum = cmd.substring(2, space1).toInt();
+      int angle = cmd.substring(space1 + 1, space2).toInt();
+      int speed = cmd.substring(space2 + 1).toInt();
+      
+      if (servoNum >= 0 && servoNum < NUM_SERVOS && angle >= 0 && angle <= 180 && speed >= 1 && speed <= 50) {
+        moveServoSmooth(servoNum, angle, speed);
+        Serial.print(F("SS"));
+        Serial.print(servoNum);
+        Serial.print(F(" -> "));
+        Serial.print(angle);
+        Serial.print(F(" @ speed "));
+        Serial.println(speed);
+      }
+    } else {
+      Serial.println(F("Format: SS0 90 20"));
+    }
+  }
+  
+  // ===== MS - Move all với tốc độ =====
+  else if (cmd.startsWith("MS ")) {
+    int lastSpace = cmd.lastIndexOf(' ');
+    if (lastSpace > 3) {
+      String data = cmd.substring(3, lastSpace);
+      int speed = cmd.substring(lastSpace + 1).toInt();
+      
+      if (speed < 1 || speed > 50) speed = globalSpeed;
+      
+      int angles[NUM_SERVOS];
+      byte count = 0;
+      int start = 0;
+      
+      for (int i = 0; i <= data.length(); i++) {
+        if (i == data.length() || data.charAt(i) == ',') {
+          if (count < NUM_SERVOS) {
+            angles[count++] = data.substring(start, i).toInt();
+            start = i + 1;
+          }
+        }
+      }
+      
+      if (count == NUM_SERVOS) {
+        moveAllSmooth(angles, speed);
+        Serial.print(F("MS OK @ speed "));
+        Serial.println(speed);
+      }
+    }
+  }
+  
+  // ===== SENSOR ON/OFF =====
+  else if (cmd.startsWith("SENSOR ")) {
+    String state = cmd.substring(7);
+    state.trim();
+    
+    if (state.equals("ON")) {
+      sensorEnabled = true;
+      Serial.println(F("Sensor: ENABLED"));
+      Serial.print(F("Sensor pin: "));
+      Serial.println(SENSOR_PIN);
+    } else if (state.equals("OFF")) {
+      sensorEnabled = false;
+      autoRunEnabled = false;
+      Serial.println(F("Sensor: DISABLED"));
+    } else {
+      Serial.println(F("SENSOR ON/OFF"));
+    }
+  }
+  
+  // ===== AUTORUN ON/OFF =====
+  else if (cmd.startsWith("AUTORUN ")) {
+    String state = cmd.substring(8);
+    state.trim();
+    
+    if (state.equals("ON")) {
+      if (!sensorEnabled) {
+        Serial.println(F("Enable SENSOR first!"));
+        return;
+      }
+      autoRunEnabled = true;
+      Serial.println(F("Auto-run: ENABLED"));
+      Serial.println(F("Robot will run ALL sequences when sensor triggered"));
+    } else if (state.equals("OFF")) {
+      autoRunEnabled = false;
+      Serial.println(F("Auto-run: DISABLED"));
+    } else {
+      Serial.println(F("AUTORUN ON/OFF"));
+    }
+  }
+  
+  // ===== RUNALL - Chạy thủ công tất cả sequences =====
+  else if (cmd.equals("RUNALL")) {
+    runAllSequences();
+  }
+  
+  // ===== SENSORTEST - Test cảm biến =====
+  else if (cmd.equals("SENSORTEST")) {
+    Serial.println(F("\n=== SENSOR TEST ==="));
+    Serial.print(F("Pin: "));
+    Serial.println(SENSOR_PIN);
+    Serial.print(F("Enabled: "));
+    Serial.println(sensorEnabled ? F("YES") : F("NO"));
+    Serial.print(F("Auto-run: "));
+    Serial.println(autoRunEnabled ? F("YES") : F("NO"));
+    Serial.println(F("\nReading sensor for 10 seconds..."));
+    Serial.println(F("Press Ctrl+C to stop"));
+    
+    unsigned long startTime = millis();
+    while (millis() - startTime < 10000) {
+      bool state = digitalRead(SENSOR_PIN);
+      Serial.print(F("Sensor: "));
+      Serial.println(state ? F("HIGH (detected)") : F("LOW"));
+      delay(500);
+    }
+    Serial.println(F("Test completed"));
+  }
+  
+  // STATUS
+  else if (cmd.equals("STATUS")) {
+    Serial.println(F("\n=== STATUS ==="));
+    Serial.print(F("Global Speed: "));
+    Serial.println(globalSpeed);
+    Serial.print(F("Sensor: "));
+    Serial.println(sensorEnabled ? F("ON") : F("OFF"));
+    Serial.print(F("Auto-run: "));
+    Serial.println(autoRunEnabled ? F("ON") : F("OFF"));
+    Serial.print(F("Sequences: "));
+    Serial.println(sequenceCount);
+    Serial.println(F("Current Positions:"));
+    for (byte i = 0; i < NUM_SERVOS; i++) {
+      Serial.print(F("  S"));
+      Serial.print(i);
+      Serial.print(F(": "));
+      Serial.println(servoPos[i]);
+    }
+    Serial.println(F("==============\n"));
+  }
+  
+  // TEST
+  else if (cmd.equals("TEST")) {
+    Serial.println(F("Testing all servos..."));
+    for (byte i = 0; i < NUM_SERVOS; i++) {
+      Serial.print(F("Testing S"));
+      Serial.println(i);
+      moveServo(i, 0);
+      delay(500);
+      moveServo(i, 90);
+      delay(500);
+      moveServo(i, 180);
+      delay(500);
+      moveServo(i, 90);
+      delay(300);
+    }
+    Serial.println(F("Test completed!"));
+  }
+  
+  // HOME
+  else if (cmd.equals("HOME")) {
+    Serial.println(F("Going HOME..."));
+    for (byte i = 0; i < NUM_SERVOS; i++) {
+      moveServo(i, 90);
+      delay(100);
+    }
+    Serial.println(F("HOME position reached"));
+  }
+  
+  // S0 90 - Move single servo
+  else if (cmd.charAt(0) == 'S' && cmd.length() > 1 && cmd.charAt(1) >= '0' && cmd.charAt(1) <= '9') {
+    int spacePos = cmd.indexOf(' ');
+    if (spacePos > 0) {
+      int servoNum = cmd.substring(1, spacePos).toInt();
+      int angle = cmd.substring(spacePos + 1).toInt();
+      
+      if (servoNum >= 0 && servoNum < NUM_SERVOS && angle >= 0 && angle <= 180) {
+        moveServo(servoNum, angle);
+        Serial.print(F("S"));
+        Serial.print(servoNum);
+        Serial.print(F(" -> "));
+        Serial.print(angle);
+        Serial.print(F(" @ speed "));
+        Serial.println(globalSpeed);
+      }
+    }
+  }
+  
+  // M 90,45,120,60,80,100 - Move all servos
+  else if (cmd.startsWith("M ")) {
+    String data = cmd.substring(2);
+    int angles[NUM_SERVOS];
+    byte count = 0;
+    int start = 0;
+    
+    for (int i = 0; i <= data.length(); i++) {
+      if (i == data.length() || data.charAt(i) == ',') {
+        if (count < NUM_SERVOS) {
+          angles[count++] = data.substring(start, i).toInt();
+          start = i + 1;
+        }
+      }
+    }
+    
+    if (count == NUM_SERVOS) {
+      moveAllSmooth(angles, globalSpeed);
+      Serial.print(F("M OK @ speed "));
+      Serial.println(globalSpeed);
+    } else {
+      Serial.println(F("Need 6 angles"));
+    }
+  }
+  
+  // ALL 90 - Move all servos to same angle
+  else if (cmd.startsWith("ALL ")) {
+    int angle = cmd.substring(4).toInt();
+    if (angle >= 0 && angle <= 180) {
+      Serial.print(F("Moving all servos to "));
+      Serial.println(angle);
+      for (byte i = 0; i < NUM_SERVOS; i++) {
+        moveServo(i, angle);
+        delay(50);
+      }
+      Serial.println(F("ALL OK"));
+    }
+  }
+  
+  else {
+    Serial.println(F("Unknown command. Type HELP"));
+  }
+}
+
+void setup() {
+  Serial.begin(9600);
+  pwm.begin();
+  pwm.setPWMFreq(SERVO_FREQ);
+  delay(100);
+  
+  // Cấu hình cảm biến
+  pinMode(SENSOR_PIN, INPUT);
+  
+  for (byte i = 0; i < MAX_SEQUENCES; i++) {
+    sequences[i].isValid = false;
+    sequences[i].stepCount = 0;
+  }
+  
+  Serial.println(F("\n=============================="));
+  Serial.println(F("  ROBOT ARM CONTROLLER"));
+  Serial.println(F("=============================="));
+  Serial.println(F("Initializing servos..."));
+  
+  moveServo(0, 90);
+  delay(100);
+  moveServo(1, 90);
+  delay(100);
+  moveServo(2, 90);
+  delay(100);
+  moveServo(3, 0);
+  delay(100);
+  moveServo(4, 90);
+  delay(100);
+  moveServo(5, 90);
+  delay(100);
+  
+  Serial.println(F("\nREADY!"));
+  Serial.print(F("Position: 90,90,90,0,90,90"));
+  Serial.print(F(" | Speed: "));
+  Serial.println(globalSpeed);
+  Serial.println(F("Type HELP for commands"));
+  Serial.println(F("==============================\n"));
+}
+
+void loop() {
+  // ===== KIỂM TRA CẢM BIẾN =====
+  if (sensorEnabled && autoRunEnabled) {
+    bool sensorState = digitalRead(SENSOR_PIN);
+    
+    // Phát hiện cạnh lên (LOW -> HIGH)
+    if (sensorState == HIGH && lastSensorState == LOW) {
+      Serial.println(F("\n!!! SENSOR TRIGGERED !!!"));
+      runAllSequences();
+    }
+    
+    lastSensorState = sensorState;
+  }
+  
+  // ===== XỬ LÝ LỆNH TỪ SERIAL =====
+  if (Serial.available() > 0) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    cmd.toUpperCase();
+    
+    if (cmd.length() > 0) {
+      processCommand(cmd);
+    }
+  }
+}
