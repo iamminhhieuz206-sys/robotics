@@ -1,9 +1,8 @@
 import os
 
 label_folder = r"D:\Robotic\images\Coca_chai"
-new_class_index = 2  # class mới
+new_class_index = 1  # class mới
 
-# Lấy tất cả file .txt trong folder
 txt_files = [f for f in os.listdir(label_folder) if f.endswith(".txt")]
 
 for txt_file in txt_files:
@@ -11,17 +10,16 @@ for txt_file in txt_files:
     with open(path, "r") as f:
         lines = f.readlines()
     
-    # Thay class_index đầu tiên bằng new_class_index
     new_lines = []
     for line in lines:
         parts = line.strip().split()
         if len(parts) == 5:  # chuẩn YOLO: class x_center y_center w h
-            parts[0] = str(new_class_index)
+            parts[0] = str(int(new_class_index))  # ép kiểu int để tránh 1.0
             new_lines.append(" ".join(parts) + "\n")
         else:
-            new_lines.append(line)  # giữ nguyên nếu format lạ
+            new_lines.append(line)
     
-    # Ghi lại file
+    # Ghi lại file gốc
     with open(path, "w") as f:
         f.writelines(new_lines)
 
