@@ -1,55 +1,62 @@
 import os
-import shutil
 import random
+import shutil
 
-# Folder gốc chứa các món
-root_folder = r"D:\Robotic"
+# ================= CONFIG =================
+SRC_ROOT = r"D:\nckh"
+DST_ROOT = r"D:\dataset"
 
-# Folder dataset mới
-dataset_folder = r"D:\Robotic\dataset_robotics"
+TRAIN_RATIO = 0.7
+VAL_RATIO   = 0.2
+TEST_RATIO  = 0.1
 
-# Tạo folder structure
-for split in ['train', 'val', 'test']:
-    os.makedirs(os.path.join(dataset_folder, 'images', split), exist_ok=True)
-    os.makedirs(os.path.join(dataset_folder, 'labels', split), exist_ok=True)
+IMG_EXTS = (".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG")
+# =========================================
 
-# Chia tỉ lệ
-split_ratio = {'train': 0.7, 'val': 0.2, 'test': 0.1}
+# Tạo folder đích
+for split in ["train", "val", "test"]:
+    os.makedirs(os.path.join(DST_ROOT, "images", split), exist_ok=True)
+    os.makedirs(os.path.join(DST_ROOT, "labels", split), exist_ok=True)
 
-# Lấy tất cả folder món ăn
-categories = [f for f in os.listdir(root_folder) if os.path.isdir(os.path.join(root_folder, f))]
+all_samples = []
 
-for category in categories:
-    cat_folder = os.path.join(root_folder, category)
-    # Lấy danh sách tất cả ảnh jpg
-    images = [f for f in os.listdir(cat_folder) if f.lower().endswith('.jpg')]
-    random.shuffle(images)
+# Quét từng folder món ăn
+for class_folder in os.listdir(SRC_ROOT):
+    class_path = os.path.join(SRC_ROOT, class_folder)
+    if not os.path.isdir(class_path):
+        continue
 
-    n = len(images)
-    n_train = int(n * split_ratio['train'])
-    n_val = int(n * split_ratio['val'])
-    n_test = n - n_train - n_val
+    for file in os.listdir(class_path):
+        if file.endswith(IMG_EXTS):
+            img_path = os.path.join(class_path, file)
 
-    splits = {
-        'train': images[:n_train],
-        'val': images[n_train:n_train+n_val],
-        'test': images[n_train+n_val:]
-    }
+            base_name = os.path.splitext(file)[0]
+            lbl_path = os.path.join(class_path, base_name + ".txt")
 
-    for split_name, split_images in splits.items():
-        for img_file in split_images:
-            # copy ảnh
-            src_img = os.path.join(cat_folder, img_file)
-            dst_img = os.path.join(dataset_folder, 'images', split_name, img_file)
-            shutil.copy2(src_img, dst_img)
+            if os.path.exists(lbl_path):
+                all_samples.append((img_path, lbl_path))
 
-            # copy label
-            label_file = os.path.splitext(img_file)[0]+'.txt'
-            src_label = os.path.join(cat_folder, label_file)
-            dst_label = os.path.join(dataset_folder, 'labels', split_name, label_file)
-            if os.path.exists(src_label):
-                shutil.copy2(src_label, dst_label)
-            else:
-                print(f"Label không tồn tại: {src_label}")
+# Trộn dữ liệu
+random.shuffle(all_samples)
 
-print("Hoàn tất chia dữ liệu thành train/val/test!")
+total = len(all_samples)
+train_end = int(total * TRAIN_RATIO)
+val_end   = train_end + int(total * VAL_RATIO)
+
+splits = {
+    "train": all_samples[:train_end],
+    "val":   all_samples[train_end:val_end],
+    "test":  all_samples[val_end:]
+}
+
+# Copy file
+for split, samples in splits.items():
+    for img_path, lbl_path in samples:
+        shutil.copy(img_path, os.path.join(DST_ROOT, "images", split))
+        shutil.copy(lbl_path, os.path.join(DST_ROOT, "labels", split))
+
+print("✅ DONE")
+print(f"Total images: {total}")
+print(f"Train: {len(splits['train'])}")
+print(f"Val:   {len(splits['val'])}")
+print(f"Test:  {len(splits['test'])}")
