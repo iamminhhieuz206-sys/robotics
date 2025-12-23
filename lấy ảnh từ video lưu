@@ -1,0 +1,44 @@
+import cv2
+import os
+
+# ================= CONFIG =================
+VIDEO_PATH = r"D:\nckh\video\chao_trang.mp4"   # <-- video đã tải
+OUTPUT_DIR = r"D:\nckh\dataset\chao_trang"    # <-- nơi lưu ảnh
+
+START_TIME = 6*60 + 36   # giây
+END_TIME   = 6*60 + 40   # giây
+NUM_FRAMES = 100
+# =========================================
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# --------- Open video ----------
+cap = cv2.VideoCapture(VIDEO_PATH)
+fps = cap.get(cv2.CAP_PROP_FPS)
+
+start_frame = int(START_TIME * fps)
+end_frame   = int(END_TIME * fps)
+
+total_frames = end_frame - start_frame + 1
+step = max(1, total_frames // NUM_FRAMES)
+
+cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+frame_count = start_frame
+saved = 0
+
+# --------- Extract frames ----------
+while frame_count <= end_frame:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    if (frame_count - start_frame) % step == 0:
+        img_name = f"chaotrang_{saved:04d}.png"
+        cv2.imwrite(os.path.join(OUTPUT_DIR, img_name), frame)
+        saved += 1
+
+    frame_count += 1
+
+cap.release()
+print(f"Xong! Đã lưu {saved} ảnh vào: {OUTPUT_DIR}")
